@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,9 +38,20 @@ class MainActivity : ComponentActivity() {
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val device = result.device
-            val name = device.name ?: "Unknown Device"
-            devices[device.address] = BleDevice(name, device.address, result.rssi)
+            try {
+                val device = result.device
+                val name = device.name ?: "Unknown Device"
+                devices[device.address] = BleDevice(name, device.address, result.rssi)
+            } catch (e: Exception) {
+                // Ignore malformed results
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            scanning = false
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "Scan failed (code $errorCode)", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -78,18 +90,39 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("MissingPermission")
     private fun toggleScan() {
-        val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
-        if (!hasScanPermission()) {
-            requestPermissions()
-            return
-        }
-        if (scanning) {
-            scanner.stopScan(scanCallback)
+        try {
+            val adapter = bluetoothAdapter
+            if (adapter == null) {
+                Toast.makeText(this, "Bluetooth not supported on this device", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (!adapter.isEnabled) {
+                Toast.makeText(this, "Please turn on Bluetooth", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (!hasScanPermission()) {
+                requestPermissions()
+                return
+            }
+            val scanner = adapter.bluetoothLeScanner
+            if (scanner == null) {
+                Toast.makeText(this, "Scanner unavailable. Try toggling Bluetooth off/on.", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (scanning) {
+                scanner.stopScan(scanCallback)
+                scanning = false
+            } else {
+                devices.clear()
+                scanner.startScan(scanCallback)
+                scanning = true
+            }
+        } catch (e: SecurityException) {
+            Toast.makeText(this, "Permission error: ${e.message}", Toast.LENGTH_LONG).show()
             scanning = false
-        } else {
-            devices.clear()
-            scanner.startScan(scanCallback)
-            scanning = true
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            scanning = false
         }
     }
 
