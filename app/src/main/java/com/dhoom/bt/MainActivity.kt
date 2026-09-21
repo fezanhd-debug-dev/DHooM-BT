@@ -53,6 +53,9 @@ class MainActivity : ComponentActivity() {
     private var gattServices by mutableStateOf<List<BluetoothGattService>>(emptyList())
     private val characteristicValues = mutableStateMapOf<String, String>()
 
+    private var connectRetryCount = 0
+    private var pendingDevice: BluetoothDevice? = null
+
     private var advertising by mutableStateOf(false)
     private var advertiseCallback: AdvertiseCallback? = null
 
@@ -88,6 +91,7 @@ class MainActivity : ComponentActivity() {
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
                         connectionStatus = "Connected"
+                        connectRetryCount = 0
                         Handler(mainLooper).postDelayed({
                             try {
                                 gatt.discoverServices()
@@ -96,8 +100,25 @@ class MainActivity : ComponentActivity() {
                         }, 600)
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
-                        connectionStatus = "Disconnected (status=$status)"
                         gattServices = emptyList()
+                        if (status == 133 && connectRetryCount < 2) {
+                            connectRetryCount++
+                            connectionStatus = "Retrying connection... ($connectRetryCount/2)"
+                            Handler(mainLooper).postDelayed({
+                                try {
+                                    pendingDevice?.let {
+                                        bluetoothGatt?.close()
+                                        bluetoothGatt = it.connectGatt(
+                                            this@MainActivity, false, gattCallback, BluetoothDevice.TRANSPORT_LE
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                }
+                            }, 900)
+                        } else {
+                            connectionStatus = "Disconnected (status=$status)"
+                            connectRetryCount = 0
+                        }
                     }
                 }
             }
@@ -155,12 +176,20 @@ class MainActivity : ComponentActivity() {
                         scanning = scanning,
                         onScanClick = { toggleScan() },
                         onScanDeviceClick = { address ->
+                            if (scanning) {
+                                bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
+                                scanning = false
+                            }
                             rawDevices[address]?.let { connectToDevice(it) }
                             selectedTab = 2
                         },
                         bondedList = bondedList,
                         onBondedRefresh = { refreshBonded() },
                         onBondedDeviceClick = { device ->
+                            if (scanning) {
+                                bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
+                                scanning = false
+                            }
                             connectToDevice(device)
                             selectedTab = 2
                         },
@@ -259,6 +288,8 @@ class MainActivity : ComponentActivity() {
                 requestPermissions()
                 return
             }
+            pendingDevice = device
+            connectRetryCount = 0
             bluetoothGatt?.close()
             connectionStatus = "Connecting..."
             bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -269,6 +300,8 @@ class MainActivity : ComponentActivity() {
 
     private fun disconnectGatt() {
         try {
+            pendingDevice = null
+            connectRetryCount = 0
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
             bluetoothGatt = null
