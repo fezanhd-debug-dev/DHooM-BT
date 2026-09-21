@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val gattCallback = object : BluetoothGattCallback() {
+    private val BluetoothGattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             runOnUiThread {
                 when (newState) {
