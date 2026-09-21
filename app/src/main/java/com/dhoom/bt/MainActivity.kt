@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.ParcelUuid
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -87,10 +88,15 @@ class MainActivity : ComponentActivity() {
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
                         connectionStatus = "Connected"
-                        gatt.discoverServices()
+                        Handler(mainLooper).postDelayed({
+                            try {
+                                gatt.discoverServices()
+                            } catch (e: Exception) {
+                            }
+                        }, 600)
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
-                        connectionStatus = "Disconnected"
+                        connectionStatus = "Disconnected (status=$status)"
                         gattServices = emptyList()
                     }
                 }
@@ -99,7 +105,14 @@ class MainActivity : ComponentActivity() {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             runOnUiThread {
-                gattServices = gatt.services
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    gattServices = gatt.services
+                    if (gatt.services.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "Connected, but device reported no services", Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    Toast.makeText(this@MainActivity, "Service discovery failed (status=$status)", Toast.LENGTH_LONG).show()
+                }
             }
         }
 
@@ -248,7 +261,7 @@ class MainActivity : ComponentActivity() {
             }
             bluetoothGatt?.close()
             connectionStatus = "Connecting..."
-            bluetoothGatt = device.connectGatt(this, false, gattCallback)
+            bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } catch (e: Exception) {
             Toast.makeText(this, "Connect error: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -447,7 +460,7 @@ fun BondedScreen(
         }
         if (devices.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No paired devices.")
+                Text("No paired devices. Pair a device from phone Settings > Bluetooth first.")
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
